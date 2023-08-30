@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Example of how to auto scale down resources to safe cost
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  ScaleDownOffHours:
+    Type: String
+    Default: "false"
+
+Conditions:
+  ConfigureScaleDownOffHours: !Equals [ "true", !Ref ScaleDownOffHours ]
+
+Resources:
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: DB Security Group
+
+  DatabaseCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-postgresql
+      EngineVersion: "14"
+      MasterUsername: postgres
+      ManageMasterUserPassword: true
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine:  aurora-postgresql
+      DBInstanceClass: "db.t4g.medium"
+      DBClusterIdentifier: !Ref DatabaseCluster
+      PubliclyAccessible: 'true'
+
+  ScaleDownOffHoursStateMachine:
+    Condition: ConfigureScaleDownOffHours
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Events:
+        ScaleDown:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpressionTimezone: America/Chicago
+            ScheduleExpression: "cron(0 17 * * ? *)"
+        ScaleUp:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source: [ "aws.cloudformation" ]
+              account: [ !Ref AWS::AccountId ]
+              detail-type: [ "CloudFormation Stack Status Change" ]
+              detail:
+                stack-id: [ !Ref AWS::StackId ]
+                status-details:
+                  status: [ "UPDATE_IN_PROGRESS" ]
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - rds:StopDBCluster
+                - rds:StartDBCluster
+              Resource:
+                - !GetAtt DatabaseCluster.DBClusterArn
+      Definition:
+        StartAt: DetermineDirection
+        States:
+          DetermineDirection:
+            Type: Choice
+            Choices:
+              - Variable: "$$.Execution.Input.source"
+                StringEquals: aws.scheduler
+                Next: ScaleDown
+            Default: ScaleUp
+          ScaleUp:
+            Type: Task
+            Resource: "arn:aws:states:::aws-sdk:rds:startDBCluster"
+            Parameters:
+              DbClusterIdentifier: !Ref DatabaseCluster
+            Catch:
+              - ErrorEquals: [ "Rds.InvalidDbClusterStateException" ]
+                Next: AlreadyScaling
+            End: true
+          ScaleDown:
+            Type: Task
+            Resource: "arn:aws:states:::aws-sdk:rds:stopDBCluster"
+            Parameters:
+              DbClusterIdentifier: !Ref DatabaseCluster
+            Catch:
+              - ErrorEquals: [ "Rds.InvalidDbClusterStateException" ]
+                Next: AlreadyScaling
+            End: true
+          AlreadyScaling:
+            Type: Pass
+            End: true

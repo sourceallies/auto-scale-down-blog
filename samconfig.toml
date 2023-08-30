@@ -1,0 +1,12 @@
+version = 0.1
+[default.global.parameters]
+stack_name = "ts-auto-scale-down-db"
+[default.deploy.parameters]
+resolve_s3 = true
+s3_prefix = "ts-auto-scale-down-db"
+region = "us-east-1"
+capabilities = "CAPABILITY_IAM"
+image_repositories = []
+parameter_overrides = [
+    "ScaleDownOffHours=true"
+]
