@@ -76,19 +76,10 @@ Resources:
             Resource: "arn:aws:states:::aws-sdk:rds:startDBCluster"
             Parameters:
               DbClusterIdentifier: !Ref DatabaseCluster
-            Catch:
-              - ErrorEquals: [ "Rds.InvalidDbClusterStateException" ]
-                Next: AlreadyScaling
             End: true
           ScaleDown:
             Type: Task
             Resource: "arn:aws:states:::aws-sdk:rds:stopDBCluster"
             Parameters:
               DbClusterIdentifier: !Ref DatabaseCluster
-            Catch:
-              - ErrorEquals: [ "Rds.InvalidDbClusterStateException" ]
-                Next: AlreadyScaling
-            End: true
-          AlreadyScaling:
-            Type: Pass
             End: true
